@@ -29,9 +29,12 @@ const upload = multer({ storage });
 // ✅ API to upload recording from host
 app.post('/upload', upload.single('video'), (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+
+  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+
   res.json({
     message: 'Upload successful',
-    fileUrl: `/uploads/${req.file.filename}`
+    fileUrl: fileUrl // full download URL
   });
 });
 
