@@ -1,191 +1,133 @@
-const { Server } = require('socket.io');
+const rooms = {}; // { roomId: { participants: Map<socketId, userId> } }
+const chatPermissions = {}; // { roomId: { isChatEnabled: true/false } }
 
-const rooms = {}; // { roomId: { hostId, participants: [{ socketId, name, muted }] } }
-const chatPermissions = {}; // { roomId: { isChatEnabled: true } }
+module.exports = (io, socket) => {
+  console.log('✅ User connected:', socket.id);
 
-function initSocket(server) {
-  const io = new Server(server, { cors: { origin: '*' } });
+  // ===================== JOIN ROOM =====================
+  socket.on('join-room', ({ roomId, userId, role }) => {
+    if (!rooms[roomId]) {
+      rooms[roomId] = { participants: new Map() };
+      chatPermissions[roomId] = { isChatEnabled: true };
+    }
 
-  io.on('connection', (socket) => {
-    socket.on('join-room', ({ roomId, userId, role }) => {
-      socket.join(roomId);
-      socket.data = { roomId, userId, role };
+    socket.join(roomId);
+    socket.data = { roomId, userId, role };
+    rooms[roomId].participants.set(socket.id, userId);
 
-      // Initialize room if it doesn't exist
-      if (!rooms[roomId]) {
-        rooms[roomId] = { hostId: '', participants: [] };
-        chatPermissions[roomId] = { isChatEnabled: true };
-      }
+    console.log(`👤 ${role} "${userId}" joined room "${roomId}"`);
 
-      if (role === 'host') {
-        rooms[roomId].hostId = socket.id;
-        console.log(`Host ${userId} joined room ${roomId}`);
-        
-        // Send existing participants to the host
-        socket.emit('participant-list', rooms[roomId].participants);
-      } else {
-        // Add participant to the room
-        const participant = { socketId: socket.id, name: userId, muted: false };
-        rooms[roomId].participants.push(participant);
-        console.log(`Participant ${userId} joined room ${roomId}`);
+    // Notify the new user about all existing users
+    const existingUsers = Array.from(rooms[roomId].participants.entries())
+      .filter(([id]) => id !== socket.id)
+      .map(([socketId, name]) => ({ socketId, name }));
+    io.to(socket.id).emit('all-users', existingUsers);
 
-        // Send all existing users (host + participants) to the new participant
-        const existingUsers = [];
-        
-        // Add host if exists
-        if (rooms[roomId].hostId) {
-          existingUsers.push({ 
-            socketId: rooms[roomId].hostId, 
-            name: 'Host' 
-          });
-          socket.emit('host-info', { socketId: rooms[roomId].hostId });
-        }
-        
-        // Add other participants
-        rooms[roomId].participants
-          .filter(p => p.socketId !== socket.id)
-          .forEach(p => {
-            existingUsers.push({ 
-              socketId: p.socketId, 
-              name: p.name 
-            });
-          });
-        
-        // Send existing users to the new participant
-        socket.emit('existing-users', existingUsers);
-
-        // Inform everyone about the new participant
-        io.to(roomId).emit('user-connected', {
-          socketId: socket.id,
-          name: userId,
-        });
-
-        // Send updated participant list to host
-        if (rooms[roomId].hostId) {
-          io.to(rooms[roomId].hostId).emit('participant-list', rooms[roomId].participants);
-        }
-      }
-
-      // Send current chat permission status
-      socket.emit('chat-permission-updated', {
-        enabled: chatPermissions[roomId].isChatEnabled,
-      });
+    // Notify others about the new user
+    socket.to(roomId).emit('user-connected', {
+      socketId: socket.id,
+      name: userId,
     });
 
-    // WebRTC signaling events
-    socket.on('offer', ({ targetSocketId, offer }) => {
-      console.log(`Forwarding offer from ${socket.id} to ${targetSocketId}`);
-      io.to(targetSocketId).emit('offer', {
-        senderSocketId: socket.id,
-        offer,
-      });
-    });
-
-    socket.on('answer', ({ targetSocketId, answer }) => {
-      console.log(`Forwarding answer from ${socket.id} to ${targetSocketId}`);
-      io.to(targetSocketId).emit('answer', {
-        senderSocketId: socket.id,
-        answer,
-      });
-    });
-
-    socket.on('ice-candidate', ({ targetSocketId, candidate }) => {
-      console.log(`Forwarding ICE candidate from ${socket.id} to ${targetSocketId}`);
-      io.to(targetSocketId).emit('ice-candidate', {
-        senderSocketId: socket.id,
-        candidate,
-      });
-    });
-
-    // Chat functionality
-    socket.on('send-chat', ({ roomId, message, to }) => {
-      const { userId, role } = socket.data;
-      const chatAllowed = chatPermissions[roomId]?.isChatEnabled;
-
-      if (!chatAllowed && role !== 'host') {
-        console.log(`Chat blocked for ${userId} in room ${roomId}`);
-        return;
-      }
-
-      const payload = {
-        from: userId,
-        message,
-        to: to || 'all',
-        timestamp: Date.now(),
-      };
-
-      if (to) {
-        // Private message
-        io.to(to).emit('receive-chat', payload);
-        socket.emit('receive-chat', payload); // Send to sender as well
-      } else {
-        // Broadcast to room
-        io.to(roomId).emit('receive-chat', payload);
-      }
-
-      console.log(`Chat message from ${userId} in room ${roomId}: ${message}`);
-    });
-
-    // Chat toggle (host only)
-    socket.on('toggle-chat', ({ roomId, enabled }) => {
-      const { role } = socket.data;
-      if (role !== 'host') return;
-
-      chatPermissions[roomId] = { isChatEnabled: enabled };
-      io.to(roomId).emit('chat-permission-updated', { enabled });
-      console.log(`Chat ${enabled ? 'enabled' : 'disabled'} in room ${roomId}`);
-    });
-
-    // Mute/Unmute logic
-    socket.on('mute-user', ({ roomId, targetSocketId }) => {
-      const room = rooms[roomId];
-      const participant = room?.participants.find(p => p.socketId === targetSocketId);
-      if (participant) {
-        participant.muted = true;
-        io.to(targetSocketId).emit('muted');
-        io.to(room.hostId).emit('participant-list', room.participants);
-        console.log(`Muted user ${targetSocketId} in room ${roomId}`);
-      }
-    });
-
-    socket.on('unmute-user', ({ roomId, targetSocketId }) => {
-      const room = rooms[roomId];
-      const participant = room?.participants.find(p => p.socketId === targetSocketId);
-      if (participant) {
-        participant.muted = false;
-        io.to(targetSocketId).emit('unmuted');
-        io.to(room.hostId).emit('participant-list', room.participants);
-        console.log(`Unmuted user ${targetSocketId} in room ${roomId}`);
-      }
-    });
-
-    // Handle disconnect
-    socket.on('disconnect', () => {
-      const { roomId, role, userId } = socket.data || {};
-      if (!roomId || !rooms[roomId]) return;
-
-      console.log(`User ${userId} disconnected from room ${roomId}`);
-
-      if (role === 'participant') {
-        // Remove participant from room
-        rooms[roomId].participants = rooms[roomId].participants.filter(p => p.socketId !== socket.id);
-        
-        // Notify others
-        socket.to(roomId).emit('user-disconnected', socket.id);
-        
-        // Update host's participant list
-        if (rooms[roomId].hostId) {
-          io.to(rooms[roomId].hostId).emit('participant-list', rooms[roomId].participants);
-        }
-      } else if (role === 'host') {
-        // End the room if host leaves
-        io.to(roomId).emit('host-disconnected');
-        delete rooms[roomId];
-        delete chatPermissions[roomId];
-        console.log(`Room ${roomId} ended as host left`);
-      }
+    // Send current chat permission status
+    io.to(socket.id).emit('chat-permission-updated', {
+      enabled: chatPermissions[roomId].isChatEnabled,
     });
   });
-}
 
-module.exports = initSocket;
+  // ===================== WEBRTC SIGNALING =====================
+  socket.on('send-offer', ({ offer, to }) => {
+    const from = socket.id;
+    const userId = socket.data?.userId || 'Unknown User';
+    console.log(`📞 ${userId} (${from}) sending offer to ${to}`);
+    io.to(to).emit('receive-offer', { offer, from });
+  });
+
+  socket.on('send-answer', ({ answer, to }) => {
+    console.log(`📞 ${socket.data.userId} sending answer to ${to}`);
+    io.to(to).emit('receive-answer', { answer, from: socket.id });
+  });
+
+  socket.on('send-ice-candidate', ({ candidate, to }) => {
+    console.log(`❄️ ${socket.data.userId} sending ICE candidate to ${to}`);
+    io.to(to).emit('receive-ice-candidate', { candidate, from: socket.id });
+  });
+
+  // ===================== MEDIA CONTROLS =====================
+  socket.on('mute-toggle', ({ roomId, userId, isMuted }) => {
+    socket.to(roomId).emit('user-muted', { userId, isMuted });
+  });
+
+  socket.on('camera-toggle', ({ roomId, userId, isCameraOff }) => {
+    socket.to(roomId).emit('user-camera-toggle', { userId, isCameraOff });
+  });
+
+  // ===================== CHAT =====================
+  socket.on('toggle-chat', ({ roomId, enabled }) => {
+    const { role } = socket.data;
+    if (role !== 'host') return;
+
+    chatPermissions[roomId] = { isChatEnabled: enabled };
+    io.to(roomId).emit('chat-permission-updated', { enabled });
+    console.log(`💬 Chat ${enabled ? 'enabled' : 'disabled'} in room ${roomId}`);
+  });
+
+  socket.on('send-chat', ({ roomId, message, to }) => {
+    const { userId, role } = socket.data;
+    const chatAllowed = chatPermissions[roomId]?.isChatEnabled;
+
+    if (!chatAllowed && role !== 'host') {
+      console.log(`❌ Chat blocked for ${userId} in room ${roomId}`);
+      return;
+    }
+
+    const payload = {
+      from: userId,
+      message,
+      to: to || 'all',
+      timestamp: Date.now(),
+    };
+
+    if (to) {
+      // Private message
+      io.to(to).emit('receive-chat', payload);
+      socket.emit('receive-chat', payload); // echo back to sender
+    } else {
+      // Public message
+      io.to(roomId).emit('receive-chat', payload);
+    }
+
+    console.log(`💬 ${userId} (${role}) in ${roomId}: ${message}`);
+  });
+
+  // ===================== SCREEN SHARE =====================
+  socket.on('screen-share-started', () => {
+    const { userId, roomId } = socket.data || {};
+    console.log(`📺 ${userId} started screen sharing in room ${roomId}`);
+  });
+
+  socket.on('screen-share-stopped', () => {
+    const { userId, roomId } = socket.data || {};
+    console.log(`🛑 ${userId} stopped screen sharing in room ${roomId}`);
+  });
+
+  // ===================== DISCONNECT =====================
+  socket.on('disconnect', () => {
+    const { roomId } = socket.data || {};
+    const room = rooms[roomId];
+
+    console.log('❌ User disconnected:', socket.id);
+    if (!room) return;
+
+    // Remove user from participant list
+    room.participants.delete(socket.id);
+    socket.to(roomId).emit('user-disconnected', socket.id);
+
+    // Cleanup room if empty
+    if (room.participants.size === 0) {
+      delete rooms[roomId];
+      delete chatPermissions[roomId];
+      console.log(`🧹 Room "${roomId}" deleted after last user left.`);
+    }
+  });
+};
