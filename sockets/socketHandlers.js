@@ -49,7 +49,6 @@ module.exports = (io, socket) => {
   });
 
   socket.on('send-ice-candidate', ({ candidate, to }) => {
-    console.log(`❄️ ${socket.data.userId} sending ICE candidate to ${to}`);
     io.to(to).emit('receive-ice-candidate', { candidate, from: socket.id });
   });
 
