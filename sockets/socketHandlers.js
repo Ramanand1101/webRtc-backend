@@ -1,5 +1,5 @@
-const rooms = {}; // { roomId: { participants: Map<socketId, userId> } }
-const chatPermissions = {}; // { roomId: { isChatEnabled: true/false } }
+const rooms = {}; // { roomId: { participants: Map<socketId, { userId, role }> } }
+const chatPermissions = {}; // { roomId: { isChatEnabled: true } }
 
 module.exports = (io, socket) => {
   console.log('✅ User connected:', socket.id);
@@ -13,14 +13,15 @@ module.exports = (io, socket) => {
 
     socket.join(roomId);
     socket.data = { roomId, userId, role };
-    rooms[roomId].participants.set(socket.id, userId);
+    rooms[roomId].participants.set(socket.id, { userId, role });
 
     console.log(`👤 ${role} "${userId}" joined room "${roomId}"`);
 
-    // Notify the new user about all existing users
+    // Notify the new user about existing participants
     const existingUsers = Array.from(rooms[roomId].participants.entries())
       .filter(([id]) => id !== socket.id)
-      .map(([socketId, name]) => ({ socketId, name }));
+      .map(([socketId, data]) => ({ socketId, name: data.userId }));
+
     io.to(socket.id).emit('all-users', existingUsers);
 
     // Notify others about the new user
@@ -33,6 +34,18 @@ module.exports = (io, socket) => {
     io.to(socket.id).emit('chat-permission-updated', {
       enabled: chatPermissions[roomId].isChatEnabled,
     });
+  });
+
+  // ===================== CHECK HOST PRESENCE =====================
+  socket.on('check-host', ({ roomId }, callback) => {
+    const room = rooms[roomId];
+    if (!room) return callback({ hostPresent: false });
+
+    const hostExists = Array.from(room.participants.values()).some(
+      (p) => p.role === 'host'
+    );
+
+    callback({ hostPresent: hostExists });
   });
 
   // ===================== WEBRTC SIGNALING =====================
@@ -88,11 +101,9 @@ module.exports = (io, socket) => {
     };
 
     if (to) {
-      // Private message
       io.to(to).emit('receive-chat', payload);
-      socket.emit('receive-chat', payload); // echo back to sender
+      socket.emit('receive-chat', payload); // echo back
     } else {
-      // Public message
       io.to(roomId).emit('receive-chat', payload);
     }
 
@@ -110,6 +121,10 @@ module.exports = (io, socket) => {
     console.log(`🛑 ${userId} stopped screen sharing in room ${roomId}`);
   });
 
+ socket.on('toggle-participant-camera', ({ targetSocketId, isCameraOff }) => {
+  io.to(targetSocketId).emit('force-camera-toggle', { isCameraOff });
+});
+
   // ===================== DISCONNECT =====================
   socket.on('disconnect', () => {
     const { roomId } = socket.data || {};
@@ -118,11 +133,11 @@ module.exports = (io, socket) => {
     console.log('❌ User disconnected:', socket.id);
     if (!room) return;
 
-    // Remove user from participant list
+    // Remove user from room
     room.participants.delete(socket.id);
     socket.to(roomId).emit('user-disconnected', socket.id);
 
-    // Cleanup room if empty
+    // Cleanup if empty
     if (room.participants.size === 0) {
       delete rooms[roomId];
       delete chatPermissions[roomId];
