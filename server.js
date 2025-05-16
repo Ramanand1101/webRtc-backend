@@ -41,27 +41,11 @@ app.post('/upload', upload.single('video'), (req, res) => {
 // ✅ Serve recording files publicly
 app.use('/uploads', express.static(uploadDir));
 
-
-// // ✅ Initialize HTTP + WebSocket Server
-// const server = http.createServer(app);
-// const io = new Server(server, {
-//   cors: {
-//     origin: '*', // 🔒 Restrict this in production
-//   },
-// });
-// ✅ Load HTTPS certs
-const privateKey = fs.readFileSync(path.join(__dirname, 'ssl/key.pem'), 'utf8');
-const certificate = fs.readFileSync(path.join(__dirname, 'ssl/cert.pem'), 'utf8');
-
-const credentials = { key: privateKey, cert: certificate };
-
-// ✅ Create HTTPS server
-const server = https.createServer(credentials, app);
-
-// ✅ WebSocket over HTTPS (WSS)
+// ✅ Initialize HTTP + WebSocket Server
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // Limit in production
+    origin: '*', // 🔒 Restrict this in production
   },
 });
 
@@ -73,27 +57,13 @@ io.on('connection', (socket) => {
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-// let previousCpuUsage = process.cpuUsage();
-
 // setInterval(() => {
 //   const mem = process.memoryUsage();
-//   const currentCpuUsage = process.cpuUsage(previousCpuUsage);
-//   previousCpuUsage = process.cpuUsage();
-
 //   console.log('🧠 Memory Usage:');
 //   console.log(`- RSS: ${(mem.rss / 1024 / 1024).toFixed(2)} MB`);
 //   console.log(`- Heap Used: ${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB`);
 //   console.log(`- Heap Total: ${(mem.heapTotal / 1024 / 1024).toFixed(2)} MB`);
 //   console.log(`- External: ${(mem.external / 1024 / 1024).toFixed(2)} MB`);
 //   console.log(`- ArrayBuffers: ${(mem.arrayBuffers / 1024 / 1024).toFixed(2)} MB`);
-
-//   const userCPU = (currentCpuUsage.user / 1000).toFixed(2);     // in ms
-//   const systemCPU = (currentCpuUsage.system / 1000).toFixed(2); // in ms
-//   const totalCPU = (Number(userCPU) + Number(systemCPU)).toFixed(2);
-
-//   console.log('🔥 CPU Usage (in last 10s):');
-//   console.log(`- User: ${userCPU} ms`);
-//   console.log(`- System: ${systemCPU} ms`);
-//   console.log(`- Total: ${totalCPU} ms`);
 //   console.log('----------------------------------');
 // }, 10000); // every 10 seconds
