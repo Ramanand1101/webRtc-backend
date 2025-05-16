@@ -41,12 +41,15 @@ app.post('/upload', upload.single('video'), (req, res) => {
 // ✅ Serve recording files publicly
 app.use('/uploads', express.static(uploadDir));
 
-// ✅ Initialize HTTP + WebSocket Server
-const server = http.createServer(app);
+
+const ssl = {
+  key: fs.readFileSync(path.join(__dirname, 'ssl/key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'ssl/cert.pem')),
+};
+
+const server = https.createServer(ssl, app);
 const io = new Server(server, {
-  cors: {
-    origin: '*', // 🔒 Restrict this in production
-  },
+  cors: { origin: '*' },
 });
 
 // ✅ WebSocket handlers
