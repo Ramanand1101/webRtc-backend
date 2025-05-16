@@ -1,4 +1,4 @@
-const http = require('http');
+const https = require('https');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -15,6 +15,9 @@ connectDB();
 const app = express();
 app.use(cors());
 
+
+const key = fs.readFileSync('cert.key');
+const cert = fs.readFileSync('cert.crt');
 // ✅ Create uploads directory if not exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -40,11 +43,10 @@ app.post('/upload', upload.single('video'), (req, res) => {
 
 // ✅ Serve recording files publicly
 app.use('/uploads', express.static(uploadDir));
-
-
+const expressServer = https.createServer({key, cert}, app);
 // ✅ Initialize HTTP + WebSocket Server
-const server = http.createServer(app);
-const io = new Server(server, {
+const server = https.createServer(app);
+const io = new Server(expressServer, {
   cors: {
     origin: '*', // 🔒 Restrict this in production
   },
@@ -58,13 +60,3 @@ io.on('connection', (socket) => {
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-// setInterval(() => {
-//   const mem = process.memoryUsage();
-//   console.log('🧠 Memory Usage:');
-//   console.log(`- RSS: ${(mem.rss / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(`- Heap Used: ${(mem.heapUsed / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(`- Heap Total: ${(mem.heapTotal / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(`- External: ${(mem.external / 1024 / 1024).toFixed(2)} MB`);
-//   console.log(`- ArrayBuffers: ${(mem.arrayBuffers / 1024 / 1024).toFixed(2)} MB`);
-//   console.log('----------------------------------');
-// }, 10000); // every 10 seconds
