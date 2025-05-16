@@ -1,4 +1,4 @@
-const https = require('https');
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -15,9 +15,6 @@ connectDB();
 const app = express();
 app.use(cors());
 
-
-const key = fs.readFileSync('cert.key');
-const cert = fs.readFileSync('cert.crt');
 // ✅ Create uploads directory if not exists
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
@@ -43,10 +40,10 @@ app.post('/upload', upload.single('video'), (req, res) => {
 
 // ✅ Serve recording files publicly
 app.use('/uploads', express.static(uploadDir));
-const expressServer = https.createServer({key, cert}, app);
+
 // ✅ Initialize HTTP + WebSocket Server
-const server = https.createServer(app);
-const io = new Server(expressServer, {
+const server = http.createServer(app);
+const io = new Server(server, {
   cors: {
     origin: '*', // 🔒 Restrict this in production
   },
