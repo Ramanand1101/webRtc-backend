@@ -196,7 +196,7 @@ socket.on('join-room', ({ roomId, userId, role }) => {
 
   if (!rooms[roomId]) {
     rooms[roomId] = { participants: new Map() };
-    chatPermissions[roomId] = { isChatEnabled: true };
+    chatPermissions[roomId] = { isChatEnabled: true };0
     chatHistory[roomId] = [];
   }
 
@@ -206,15 +206,20 @@ socket.on('join-room', ({ roomId, userId, role }) => {
 
   console.log(`👤 ${role} "${userId}" joined room "${roomId}"`);
 
-  const existingUsers = Array.from(rooms[roomId].participants.entries())
-    .filter(([id]) => id !== socket.id)
-    .map(([socketId, data]) => ({ socketId, name: data.userId }));
+ const existingUsers = Array.from(rooms[roomId].participants.entries())
+  .filter(([id]) => id !== socket.id)
+  .map(([socketId, data]) => ({
+    socketId,
+    name: data.userId,
+    role: data.role, // ✅ add this
+  }));
 
   io.to(socket.id).emit('all-users', existingUsers);
 
   socket.to(roomId).emit('user-connected', {
     socketId: socket.id,
     name: userId,
+    role:role
   });
 
   io.to(socket.id).emit('chat-permission-updated', {
